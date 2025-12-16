@@ -31,14 +31,26 @@
     </div>
 </div>
 
-@* ------------ 一覧表示部 ------------ *@
+@* ------------ 一覧表示部 (ソート機能追加) ------------ *@
 <table class="table table-striped table-bordered table-sm">
     <thead class="custom-header">
         <tr>
-            <th class="text-center" style="width:10%">受注ID</th>
-            <th class="text-center" style="width:15%">受注日</th>
-            <th class="text-center">得意先名</th>
-            <th class="text-center" style="width:15%">合計金額</th>
+            <th class="text-center sortable-header" style="width:10%"
+                @onclick="@(() => ToggleSort("受注ID"))">
+                受注ID @GetSortIcon("受注ID")
+            </th>
+            <th class="text-center sortable-header" style="width:15%"
+                @onclick="@(() => ToggleSort("受注日"))">
+                受注日 @GetSortIcon("受注日")
+            </th>
+            <th class="text-center sortable-header" 
+                @onclick="@(() => ToggleSort("得意先名"))">
+                得意先名 @GetSortIcon("得意先名")
+            </th>
+            <th class="text-center sortable-header" style="width:15%"
+                @onclick="@(() => ToggleSort("合計金額"))">
+                合計金額 @GetSortIcon("合計金額")
+            </th>
             <th class="text-center" style="width:15%">操作</th>
         </tr>
     </thead>
@@ -67,6 +79,13 @@
     </tbody>
 </table>
 
+<style>
+    /* カーソルをポインターにして、クリック可能であることを示す */
+    .sortable-header {
+        cursor: pointer;
+    }
+</style>
+
 @code {
     [Inject] private NavigationManager Navigation { get; set; } = default!;
     [Inject] public IOrderRepository 受注Repository { get; set; } = default!;
@@ -78,7 +97,13 @@
     [Parameter, SupplyParameterFromQuery]
     public string Keyword { get; set; } = string.Empty;
 
-    private List<OrderModel> 表示一覧 = new();  // 絞り込みでフィルターされる
+    // ソートに関するパラメータ
+    [Parameter, SupplyParameterFromQuery]
+    public string SortColumn { get; set; } = "受注日";
+    [Parameter, SupplyParameterFromQuery]
+    public string SortDirection { get; set; } = "desc"; // "asc" または "desc" を使用
+
+    private List<OrderModel> 表示一覧 = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -92,6 +117,7 @@
             // デモ用に開始日を固定
             StartDate = (new DateTime(2025, 8, 1)).ToString("yyyy/MM/dd");
         }
+        
         // 初期表示
         await OnSearchAsync();
     }
@@ -107,18 +133,61 @@
         if (edDate == DateTime.MinValue) edDate = safeMaxDate;
         var k = (Keyword ?? "").Trim();
 
-        表示一覧 = (await 受注Repository.SearchAsync(stDate, edDate, k)).ToList();
+        // リポジトリメソッドにソートパラメータを渡す
+        表示一覧 = (await 受注Repository.SearchAsync(stDate, edDate, k, SortColumn, SortDirection)).ToList();
+    }
 
+    // 新しいソート切り替えメソッド
+    private async Task ToggleSort(string column)
+    {
+        // クリックされた列が現在のソート列と同じ場合、昇順/降順を切り替える
+        if (SortColumn == column)
+        {
+            // 現在が降順なら昇順に、そうでなければ降順にする
+            SortDirection = SortDirection.ToLower() == "desc" ? "asc" : "desc";
+        }
+        // 別の列がクリックされたら、その列を基準とし、デフォルトは降順にする
+        else
+        {
+            SortColumn = column;
+            SortDirection = "desc";
+        }
+
+        // ソート状態をURLに反映し、データを再取得
+        await OnSearchAsync();
+    }
+    
+    // ソートアイコンを返すヘルパーメソッド
+    private string GetSortIcon(string column)
+    {
+        if (SortColumn != column)
+        {
+            return string.Empty; // ソート対象外の列
+        }
+        // ソート方向に応じてアイコンを返す
+        return SortDirection.ToLower() == "asc" ? "▲" : "▼"; 
+    }
+
+    private string GetQueryString()
+    {
+        return $"?StartDate={Uri.EscapeDataString(StartDate ?? "")}" +
+               $"&EndDate={Uri.EscapeDataString(EndDate ?? "")}" +
+               $"&Keyword={Uri.EscapeDataString(Keyword ?? "")}" +
+               $"&SortColumn={Uri.EscapeDataString(SortColumn ?? "受注日")}" +
+               $"&SortDirection={Uri.EscapeDataString(SortDirection ?? "desc")}";
     }
 
     private void OnAdd()
     {
-        var url = $"orders/edit/?StartDate={Uri.EscapeDataString(StartDate ?? "")}&EndDate={Uri.EscapeDataString(EndDate ?? "")}&Keyword={Uri.EscapeDataString(Keyword ?? "")}";
+        // パスセグメントとクエリ文字列を正しく結合
+        var url = $"orders/edit{GetQueryString()}"; 
         Navigation.NavigateTo(url);
     }
+    
     private void OnEdit(int 受注ID)
     {
-        var url = $"orders/edit/{受注ID}?StartDate={Uri.EscapeDataString(StartDate ?? "")}&EndDate={Uri.EscapeDataString(EndDate ?? "")}&Keyword={Uri.EscapeDataString(Keyword ?? "")}";
+        // パスセグメントとクエリ文字列を正しく結合
+        var url = $"orders/edit/{受注ID}{GetQueryString()}";
         Navigation.NavigateTo(url);
     }
 
@@ -127,4 +196,3 @@
         throw new Exception("テスト例外: これは意図的なエラーです");
     }
 }
-

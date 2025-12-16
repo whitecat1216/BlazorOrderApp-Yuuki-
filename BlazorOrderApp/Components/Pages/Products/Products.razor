@@ -1,6 +1,7 @@
 ﻿@page "/products"
 @using BlazorOrderApp.Models
 @using BlazorOrderApp.Repositories
+@using System.Linq
 @attribute [Authorize(Roles = "Administrator")]
 @inherits BlazorOrderApp.Components.Commons.InitialFocusComponent
 
@@ -20,9 +21,21 @@
 <table class="table table-striped table-bordered table-sm">
     <thead class="custom-header">
         <tr>
-            <th class="text-center" style="width:20%">商品コード</th>
-            <th class="text-center" style="width:50%">商品名</th>
-            <th class="text-center" style="width:15%">単価</th>
+            <th class="text-center sortable-header" style="width:20%"
+                @onclick="@(() => ToggleSort("商品コード"))">
+                <span>商品コード</span>
+                <span class="sort-icon">@GetSortIcon("商品コード")</span>
+            </th>
+            <th class="text-center sortable-header" style="width:50%"
+                @onclick="@(() => ToggleSort("商品名"))">
+                <span>商品名</span>
+                <span class="sort-icon">@GetSortIcon("商品名")</span>
+            </th>
+            <th class="text-center sortable-header" style="width:15%"
+                @onclick="@(() => ToggleSort("単価"))">
+                <span>単価</span>
+                <span class="sort-icon">@GetSortIcon("単価")</span>
+            </th>
             <th class="text-center" style="width:15%">操作</th>
         </tr>
     </thead>
@@ -49,6 +62,20 @@
     </tbody>
 </table>
 
+<style>
+    .sortable-header {
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+    }
+
+    .sort-icon {
+        margin-left: 4px;
+    }
+</style>
+
+
+
 @code {
     [Inject]
     private NavigationManager Navigation { get; set; } = default!;
@@ -57,6 +84,10 @@
 
     [Parameter, SupplyParameterFromQuery]
     public string keyword { get; set; } = string.Empty;
+    [Parameter, SupplyParameterFromQuery]
+    public string SortColumn { get; set; } = "商品コード";
+    [Parameter, SupplyParameterFromQuery]
+    public string SortDirection { get; set; } = "asc";
 
     private List<ProductModel>? 商品一覧;
     private List<ProductModel> 表示一覧 = new();  // 絞り込みでフィルターされる
@@ -70,34 +101,93 @@
 
     private void Search()
     {
-        // キーワードなし
-        if (string.IsNullOrWhiteSpace(keyword))
+        IEnumerable<ProductModel> query = 商品一覧 ?? Enumerable.Empty<ProductModel>();
+
+        if (!string.IsNullOrWhiteSpace(keyword))
         {
-            表示一覧 = 商品一覧?.ToList() ?? new();
+            var k = keyword.Trim();
+            query = query.Where(x => (x.商品コード?.Contains(k) ?? false)
+                                  || (x.商品名?.Contains(k) ?? false));
+        }
+
+        表示一覧 = query.ToList();
+        ApplySort();
+    }
+
+    private void ToggleSort(string column)
+    {
+        if (string.Equals(SortColumn, column, StringComparison.Ordinal))
+        {
+            SortDirection = string.Equals(SortDirection, "desc", StringComparison.OrdinalIgnoreCase)
+                ? "asc"
+                : "desc";
+        }
+        else
+        {
+            SortColumn = column;
+            SortDirection = column == "単価" ? "desc" : "asc";
+        }
+
+        ApplySort();
+    }
+
+    private void ApplySort()
+    {
+        if (表示一覧.Count <= 1)
+        {
             return;
         }
 
-        // キーワードあり
-        var k = keyword.Trim();
-        表示一覧 = 商品一覧?
-            .Where(x => (x.商品コード?.Contains(k) ?? false)
-                        || (x.商品名?.Contains(k) ?? false))
-            .ToList() ?? new();
+        var descending = string.Equals(SortDirection, "desc", StringComparison.OrdinalIgnoreCase);
+
+        IEnumerable<ProductModel> sorted = SortColumn switch
+        {
+            "商品名" => descending
+                ? 表示一覧.OrderByDescending(p => p.商品名)
+                : 表示一覧.OrderBy(p => p.商品名),
+            "単価" => descending
+                ? 表示一覧.OrderByDescending(p => p.単価 ?? 0m)
+                : 表示一覧.OrderBy(p => p.単価 ?? 0m),
+            _ => descending
+                ? 表示一覧.OrderByDescending(p => p.商品コード)
+                : 表示一覧.OrderBy(p => p.商品コード)
+        };
+
+        表示一覧 = sorted.ToList();
+    }
+
+    private string GetSortIcon(string column)
+    {
+        if (!string.Equals(SortColumn, column, StringComparison.Ordinal))
+        {
+            return string.Empty;
+        }
+
+        return string.Equals(SortDirection, "asc", StringComparison.OrdinalIgnoreCase) ? "▲" : "▼";
+    }
+
+    private string BuildQueryString()
+    {
+        var query = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            query.Add($"keyword={Uri.EscapeDataString(keyword)}");
+        }
+
+        query.Add($"SortColumn={Uri.EscapeDataString(SortColumn ?? "商品コード")}");
+        query.Add($"SortDirection={Uri.EscapeDataString(SortDirection ?? "asc")}");
+
+        return query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
     }
 
     private void OnAdd()
     {
-        var url = string.IsNullOrEmpty(keyword)
-            ? "/products/edit/"
-            : $"/products/edit/?keyword={Uri.EscapeDataString(keyword)}";
-        Navigation.NavigateTo(url);
+        Navigation.NavigateTo("/products/edit" + BuildQueryString());
     }
 
     private void OnEdit(string 商品コード)
     {
-        var url = string.IsNullOrEmpty(keyword)
-            ? $"/products/edit/{商品コード}"
-            : $"/products/edit/{商品コード}?keyword={Uri.EscapeDataString(keyword)}";
-        Navigation.NavigateTo(url);
+        Navigation.NavigateTo($"/products/edit/{商品コード}{BuildQueryString()}");
     }
 }
