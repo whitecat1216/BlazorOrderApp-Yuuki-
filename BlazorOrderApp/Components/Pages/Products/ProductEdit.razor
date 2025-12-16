@@ -3,7 +3,7 @@
 
 @using BlazorOrderApp.Models
 @using BlazorOrderApp.Repositories
-@using Microsoft.Data.Sqlite;
+@using Npgsql;
 @attribute [Authorize(Roles = "Administrator")]
 @inherits BlazorOrderApp.Components.Commons.InitialFocusComponent
 
@@ -195,15 +195,15 @@
             }
             OnBack();
         }
-        catch (SqliteException ex)
+        catch (PostgresException ex)
         {
-            if (ex.SqliteErrorCode == 19) // 一意制約違反（UNIQUE constraint failed）
+            if (ex.SqlState == PostgresErrorCodes.UniqueViolation)
             {
                 errorMessage = "同じ商品コードが既に登録されています。";
             }
             else
             {
-                throw ex;
+                throw;
             }
         }
     }

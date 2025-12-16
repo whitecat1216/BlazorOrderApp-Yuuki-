@@ -1,6 +1,6 @@
 ﻿using BlazorOrderApp.Models;
 using Dapper;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 using System.Data;
 
 namespace BlazorOrderApp.Repositories
@@ -27,12 +27,12 @@ namespace BlazorOrderApp.Repositories
         // 全件
         public async Task<IEnumerable<OrderModel>> GetAllAsync()
         {
-            using var conn = new SqliteConnection(_connectionString);
+            using var conn = new NpgsqlConnection(_connectionString);
 
             var dataSql = @"
-                select 受注ID, 受注日, 得意先ID, 得意先名, 合計金額, 備考, Version
-                  from 受注
-                 order by 受注日, 得意先名, 受注ID
+                select ""受注ID"", ""受注日"", ""得意先ID"", ""得意先名"", ""合計金額"", ""備考"", ""Version""
+                  from ""受注""
+                 order by ""受注日"", ""得意先名"", ""受注ID""
             ";
             var list = await conn.QueryAsync<OrderModel>(dataSql);
 
@@ -42,31 +42,32 @@ namespace BlazorOrderApp.Repositories
         // 検索
         public async Task<IEnumerable<OrderModel>> SearchAsync(DateTime startDate, DateTime endDate, string keyword)
         {
-            using var conn = new SqliteConnection(_connectionString);
+            using var conn = new NpgsqlConnection(_connectionString);
 
             var dataSql = @"
                  with sub as (
-                    select o.受注ID, o.受注日, o.得意先ID, o.得意先名, o.合計金額, o.備考, o.Version
-                      from 受注 o
-                     where o.受注日 between @startDate and @endDate
+                    select o.""受注ID"", o.""受注日"", o.""得意先ID"", o.""得意先名"", o.""合計金額"", o.""備考"", o.""Version""
+                      from ""受注"" o
+                     where o.""受注日"" between @startDate and @endDate
                 )
                 select *
                 from sub t
                 where
-                      @key = ''
-                   or t.得意先名 like @key
+                      @isEmpty
+                   or t.""得意先名"" ilike @key
                    or exists (
-                         select 1 from 受注明細 d
-                          where d.受注ID = t.受注ID
-                            and (d.商品コード like @key or d.商品名 like @key)
+                         select 1 from ""受注明細"" d
+                          where d.""受注ID"" = t.""受注ID""
+                            and (d.""商品コード"" ilike @key or d.""商品名"" ilike @key)
                      )
-                order by t.受注日, t.得意先名, t.受注ID
+                order by t.""受注日"", t.""得意先名"", t.""受注ID""
            ";
             var param = new
             {
                 startDate,
                 endDate,
-                key = "%" + keyword + "%"
+                key = "%" + keyword + "%",
+                isEmpty = string.IsNullOrWhiteSpace(keyword)
             };
             var list = await conn.QueryAsync<OrderModel>(dataSql, param);
             return list;
@@ -77,14 +78,14 @@ namespace BlazorOrderApp.Repositories
         {
             if (受注ID == null) return null;
 
-            using var conn = new SqliteConnection(_connectionString);
+            using var conn = new NpgsqlConnection(_connectionString);
 
             var sql = @"
-                select o.受注ID, o.受注日, o.得意先ID, o.得意先名, o.合計金額, o.備考, o.Version,
-                       d.明細ID, d.受注ID, d.商品コード, d.商品名, d.単価, d.数量
-                  from 受注 o
-                  left join 受注明細 d on o.受注ID = d.受注ID
-                 where o.受注ID = @受注ID
+                select o.""受注ID"", o.""受注日"", o.""得意先ID"", o.""得意先名"", o.""合計金額"", o.""備考"", o.""Version"",
+                       d.""明細ID"", d.""受注ID"", d.""商品コード"", d.""商品名"", d.""単価"", d.""数量""
+                  from ""受注"" o
+                  left join ""受注明細"" d on o.""受注ID"" = d.""受注ID""
+                 where o.""受注ID"" = @受注ID
             ";
 
             // １：Ｎのデータ構造を１ＳＱＬで取得する
@@ -118,7 +119,7 @@ namespace BlazorOrderApp.Repositories
         // OrderRepository.cs
         public async Task AddAsync(OrderModel model)
         {
-            using var conn = new SqliteConnection(_connectionString);
+            using var conn = new NpgsqlConnection(_connectionString);
             await conn.OpenAsync();
             using var tran = conn.BeginTransaction();
 
@@ -129,15 +130,15 @@ namespace BlazorOrderApp.Repositories
 
                 // 受注テーブル
                 var sql1 = @"
-                    insert into 受注 (受注日, 得意先ID, 得意先名, 合計金額, 備考, Version)
-                    values (@受注日, @得意先ID, @得意先名, @合計金額, @備考, @Version);
-                    select last_insert_rowid();
+                    insert into ""受注"" (""受注日"", ""得意先ID"", ""得意先名"", ""合計金額"", ""備考"", ""Version"")
+                    values (@受注日, @得意先ID, @得意先名, @合計金額, @備考, @Version)
+                    returning ""受注ID"";
                 ";
-                model.受注ID = (int)(await conn.ExecuteScalarAsync<long>(sql1, model, tran));
+                model.受注ID = await conn.ExecuteScalarAsync<int>(sql1, model, tran);
 
                 // 受注明細テーブル（商品コードが入力されているもののみ）
                 var sql2 = @"
-                    insert into 受注明細 (受注ID, 商品コード, 商品名, 単価, 数量)
+                    insert into ""受注明細"" (""受注ID"", ""商品コード"", ""商品名"", ""単価"", ""数量"")
                     values (@受注ID, @商品コード, @商品名, @単価, @数量)
                 ";
                 foreach (var 明細 in model.明細一覧.Where(m => !string.IsNullOrWhiteSpace(m.商品コード)))
@@ -158,22 +159,22 @@ namespace BlazorOrderApp.Repositories
         // Update
         public async Task UpdateAsync(OrderModel model)
         {
-            using var conn = new SqliteConnection(_connectionString);
+            using var conn = new NpgsqlConnection(_connectionString);
             await conn.OpenAsync();
             using var tran = conn.BeginTransaction();
 
             try
             {
                 var sql1 = @"
-                    update 受注 set
-                        受注日 = @受注日,
-                        得意先ID = @得意先ID,
-                        得意先名 = @得意先名,
-                        合計金額 = @合計金額,
-                        備考 = @備考,
-                        Version = Version + 1
-                    where 受注ID = @受注ID
-                      and Version = @Version
+                    update ""受注"" set
+                        ""受注日"" = @受注日,
+                        ""得意先ID"" = @得意先ID,
+                        ""得意先名"" = @得意先名,
+                        ""合計金額"" = @合計金額,
+                        ""備考"" = @備考,
+                        ""Version"" = ""Version"" + 1
+                    where ""受注ID"" = @受注ID
+                      and ""Version"" = @Version
                 ";
                 var rows = await conn.ExecuteAsync(sql1, model, tran);
                 if (rows == 0)
@@ -182,11 +183,11 @@ namespace BlazorOrderApp.Repositories
                 }
 
                 // 紐づく受注明細をいったん全て削除
-                conn.Execute("delete from 受注明細 where 受注ID = @受注ID", new { model.受注ID }, tran);
+                await conn.ExecuteAsync("delete from \"受注明細\" where \"受注ID\" = @受注ID", new { model.受注ID }, tran);
 
                 // 新しい明細をINSERT（商品コードが入力されているもののみ）
                 var sql2 = @"
-                    insert into 受注明細 (受注ID, 商品コード, 商品名, 単価, 数量)
+                    insert into ""受注明細"" (""受注ID"", ""商品コード"", ""商品名"", ""単価"", ""数量"")
                     values (@受注ID, @商品コード, @商品名, @単価, @数量)
                 ";
                 foreach (var 明細 in model.明細一覧.Where(m => !string.IsNullOrWhiteSpace(m.商品コード)))
@@ -207,17 +208,17 @@ namespace BlazorOrderApp.Repositories
         // Delete
         public async Task DeleteAsync(OrderModel model)
         {
-            using var conn = new SqliteConnection(_connectionString);
+            using var conn = new NpgsqlConnection(_connectionString);
             await conn.OpenAsync();
             using var tran = conn.BeginTransaction();
 
             try
             {
-                await conn.ExecuteAsync("delete from 受注明細 where 受注ID = @受注ID", new { model.受注ID }, tran);
+                await conn.ExecuteAsync("delete from \"受注明細\" where \"受注ID\" = @受注ID", new { model.受注ID }, tran);
                 var sql = @"
-                    delete from 受注
-                    where 受注ID = @受注ID
-                      and Version = @Version
+                    delete from ""受注""
+                    where ""受注ID"" = @受注ID
+                      and ""Version"" = @Version
                 ";
                 var rows = await conn.ExecuteAsync(sql, model, tran);
                 if (rows == 0)

@@ -1,0 +1,24 @@
+services:
+  app:
+    build: .
+    container_name: blazor-order-app
+    ports:
+      - "8888:8080"
+    environment:
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=blazor_order_app;Username=postgres;Password=postgres
+    depends_on:
+      - postgres
+  postgres:
+    image: postgres:16
+    container_name: blazor-order-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: blazor_order_app
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./Database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+volumes:
+  pgdata:

@@ -1,6 +1,6 @@
 ﻿using BlazorOrderApp.Models;
 using Dapper;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 using System.Data;
 
 namespace BlazorOrderApp.Repositories
@@ -26,11 +26,11 @@ namespace BlazorOrderApp.Repositories
         // 全件Select
         public async Task<List<CustomerModel>> GetAllAsync()
         {
-            using var conn = new SqliteConnection(_connectionString);
+            using var conn = new NpgsqlConnection(_connectionString);
             var dataSql = @"
-                select 得意先ID, 得意先名, 電話番号, 備考, Version
-                  from 得意先
-                 order by 得意先名
+                select ""得意先ID"", ""得意先名"", ""電話番号"", ""備考"", ""Version""
+                  from ""得意先""
+                 order by ""得意先名""
             ";
             var list = await conn.QueryAsync<CustomerModel>(dataSql);
             return list.ToList();
@@ -40,12 +40,12 @@ namespace BlazorOrderApp.Repositories
         {
             if (得意先ID == null) return null;
 
-            using var conn = new SqliteConnection(_connectionString);
+            using var conn = new NpgsqlConnection(_connectionString);
 
             var sql = @"
-                select 得意先ID, 得意先名, 電話番号, 備考, Version
-                  from 得意先
-                 where 得意先ID = @得意先ID
+                select ""得意先ID"", ""得意先名"", ""電話番号"", ""備考"", ""Version""
+                  from ""得意先""
+                 where ""得意先ID"" = @得意先ID
             ";
 
             var item = await conn.QueryFirstOrDefaultAsync<CustomerModel>(sql, new { 得意先ID });
@@ -57,14 +57,14 @@ namespace BlazorOrderApp.Repositories
         {
             model.Version = 1;
 
-            using var conn = new SqliteConnection(_connectionString);
+            using var conn = new NpgsqlConnection(_connectionString);
             await conn.OpenAsync();
             using var tran = conn.BeginTransaction();
 
             try
             {
                 var sql = @"
-                    insert into 得意先 (得意先名, 電話番号, 備考, Version)
+                    insert into ""得意先"" (""得意先名"", ""電話番号"", ""備考"", ""Version"")
                     values (@得意先名, @電話番号, @備考, @Version)
                 ";
                 await conn.ExecuteAsync(sql, model, tran);
@@ -80,20 +80,20 @@ namespace BlazorOrderApp.Repositories
         // Update
         public async Task UpdateAsync(CustomerModel model)
         {
-            using var conn = new SqliteConnection(_connectionString);
+            using var conn = new NpgsqlConnection(_connectionString);
             await conn.OpenAsync();
             using var tran = conn.BeginTransaction();
 
             try
             {
                 var sql = @"
-                    update 得意先 set
-                        得意先名 = @得意先名,
-                        電話番号 = @電話番号,
-                        備考 = @備考,
-                        Version = Version + 1
-                    where 得意先ID = @得意先ID
-                      and Version = @Version
+                    update ""得意先"" set
+                        ""得意先名"" = @得意先名,
+                        ""電話番号"" = @電話番号,
+                        ""備考"" = @備考,
+                        ""Version"" = ""Version"" + 1
+                    where ""得意先ID"" = @得意先ID
+                      and ""Version"" = @Version
                 ";
                 var rows = await conn.ExecuteAsync(sql, model, tran);
                 if (rows == 0)
@@ -113,16 +113,16 @@ namespace BlazorOrderApp.Repositories
         // Delete
         public async Task DeleteAsync(CustomerModel model)
         {
-            using var conn = new SqliteConnection(_connectionString);
+            using var conn = new NpgsqlConnection(_connectionString);
             await conn.OpenAsync();
             using var tran = conn.BeginTransaction();
 
             try
             {
                 var sql = @"
-                    delete from 得意先
-                    where 得意先ID = @得意先ID
-                      and Version = @Version
+                    delete from ""得意先""
+                    where ""得意先ID"" = @得意先ID
+                      and ""Version"" = @Version
                 ";
                 var rows = await conn.ExecuteAsync(sql, model, tran);
                 if (rows == 0)
