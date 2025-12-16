@@ -1,0 +1,158 @@
+@page "/orders/history"
+@using BlazorOrderApp.Models
+@using BlazorOrderApp.Repositories
+@attribute [Authorize]
+@inherits BlazorOrderApp.Components.Commons.InitialFocusComponent
+
+<h2 class="mb-3">受注履歴</h2>
+
+<div class="row g-2 mb-4">
+    <div class="d-flex align-items-end flex-wrap gap-3">
+        <div style="width: 160px;">
+            <label for="history-start" class="form-label">開始日</label>
+            <InputText id="history-start" @bind-Value="StartDate" class="form-control" placeholder="yyyy/MM/dd" autocomplete="off"
+                       data-tab="10" />
+        </div>
+        <div class="pb-3">～</div>
+        <div style="width: 160px;">
+            <label for="history-end" class="form-label">終了日</label>
+            <InputText id="history-end" @bind-Value="EndDate" class="form-control" placeholder="yyyy/MM/dd" autocomplete="off"
+                       data-tab="20" />
+        </div>
+        <div style="width: 320px;">
+            <label for="history-keyword" class="form-label">得意先・商品キーワード</label>
+            <InputText id="history-keyword" @bind-Value="Keyword" class="form-control" autocomplete="off"
+                       data-tab="30" />
+        </div>
+        <button class="btn btn-primary" @onclick="OnSearchAsync">検索</button>
+        <button class="btn btn-outline-secondary" @onclick="OnClearAsync">条件クリア</button>
+    </div>
+</div>
+
+@if (!履歴一覧.Any())
+{
+    <div class="alert alert-info">指定期間の受注はありません。</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped table-bordered align-middle">
+            <thead class="custom-header">
+                <tr>
+                    <th class="text-center" style="width: 10%">受注ID</th>
+                    <th class="text-center" style="width: 15%">受注日</th>
+                    <th>得意先名</th>
+                    <th class="text-center" style="width: 10%">明細数</th>
+                    <th class="text-end" style="width: 15%">合計金額</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var order in 履歴一覧)
+                {
+                    <tr class="table-light">
+                        <td class="text-end pe-3">@order.受注ID</td>
+                        <td class="text-center">@order.受注日.ToString("yyyy/MM/dd (ddd)", new System.Globalization.CultureInfo("ja-JP"))</td>
+                        <td>@order.得意先名</td>
+                        <td class="text-center">@order.明細一覧.Count</td>
+                        <td class="text-end pe-3">￥@order.合計金額.ToString("N0")</td>
+                    </tr>
+                    <tr>
+                        <td colspan="5" class="bg-white">
+                            <table class="table table-sm mb-0">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 20%">商品コード</th>
+                                        <th>商品名</th>
+                                        <th class="text-end" style="width: 15%">単価</th>
+                                        <th class="text-end" style="width: 10%">数量</th>
+                                        <th class="text-end" style="width: 15%">金額</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (!order.明細一覧.Any())
+                                    {
+                                        <tr>
+                                            <td colspan="5" class="text-muted">明細が登録されていません。</td>
+                                        </tr>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var detail in order.明細一覧)
+                                        {
+                                            <tr>
+                                                <td>@detail.商品コード</td>
+                                                <td>@detail.商品名</td>
+                                                <td class="text-end">￥@detail.単価.ToString("N0")</td>
+                                                <td class="text-end">@detail.数量</td>
+                                                <td class="text-end">￥@(detail.金額.ToString("N0"))</td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                            @if (!string.IsNullOrWhiteSpace(order.備考))
+                            {
+                                <div class="mt-2 text-muted">備考: @order.備考</div>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    [Inject] public IOrderRepository OrderRepository { get; set; } = default!;
+
+    private List<OrderModel> 履歴一覧 = new();
+
+    public string StartDate { get; set; } = string.Empty;
+    public string EndDate { get; set; } = string.Empty;
+    public string Keyword { get; set; } = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var jst = TimeZoneInfo.FindSystemTimeZoneById("Tokyo Standard Time");
+        var todayJst = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, jst).Date;
+
+        StartDate = todayJst.AddMonths(-1).ToString("yyyy/MM/dd");
+        EndDate = todayJst.ToString("yyyy/MM/dd");
+
+        await OnSearchAsync();
+    }
+
+    private async Task OnSearchAsync()
+    {
+        var safeStart = ParseDate(StartDate) ?? new DateTime(1900, 1, 1);
+        var safeEnd = ParseDate(EndDate) ?? new DateTime(2999, 12, 31);
+
+        if (safeEnd < safeStart)
+        {
+            (safeStart, safeEnd) = (safeEnd, safeStart);
+            StartDate = safeStart.ToString("yyyy/MM/dd");
+            EndDate = safeEnd.ToString("yyyy/MM/dd");
+        }
+
+        var data = await OrderRepository.GetHistoryAsync(safeStart, safeEnd, Keyword);
+        履歴一覧 = data.ToList();
+    }
+
+    private async Task OnClearAsync()
+    {
+        StartDate = string.Empty;
+        EndDate = string.Empty;
+        Keyword = string.Empty;
+        履歴一覧.Clear();
+        await OnSearchAsync();
+    }
+
+    private static DateTime? ParseDate(string value)
+    {
+        if (DateTime.TryParse(value, out var parsed))
+        {
+            return parsed.Date;
+        }
+        return null;
+    }
+}

@@ -10,6 +10,7 @@ namespace BlazorOrderApp.Repositories
         Task<IEnumerable<OrderModel>> GetAllAsync();
         Task<IEnumerable<OrderModel>> SearchAsync(DateTime startDate, DateTime endDate, string keyword);
         Task<OrderModel?> GetByIdAsync(int? 受注ID);
+        Task<IEnumerable<OrderModel>> GetHistoryAsync(DateTime? startDate, DateTime? endDate, string? keyword);
         Task AddAsync(OrderModel model);
         Task UpdateAsync(OrderModel model);
         Task DeleteAsync(OrderModel model);
@@ -71,6 +72,79 @@ namespace BlazorOrderApp.Repositories
             };
             var list = await conn.QueryAsync<OrderModel>(dataSql, param);
             return list;
+        }
+
+        // 履歴（明細含む）
+        public async Task<IEnumerable<OrderModel>> GetHistoryAsync(DateTime? startDate, DateTime? endDate, string? keyword)
+        {
+            using var conn = new NpgsqlConnection(_connectionString);
+
+            var safeStart = startDate ?? new DateTime(1900, 1, 1);
+            var safeEnd = endDate ?? new DateTime(2999, 12, 31);
+            var key = (keyword ?? string.Empty).Trim();
+
+            var sql = @"
+                select
+                    o.""受注ID"",
+                    o.""受注日"",
+                    o.""得意先ID"",
+                    o.""得意先名"",
+                    o.""合計金額"",
+                    o.""備考"",
+                    o.""Version"",
+                    d.""明細ID"",
+                    d.""受注ID"",
+                    d.""商品コード"",
+                    d.""商品名"",
+                    d.""単価"",
+                    d.""数量""
+                from ""受注"" o
+                left join ""受注明細"" d on d.""受注ID"" = o.""受注ID""
+                where o.""受注日"" between @startDate and @endDate
+                  and (
+                        @isEmpty
+                     or o.""得意先名"" ilike @key
+                     or d.""商品コード"" ilike @key
+                     or d.""商品名"" ilike @key
+                  )
+                order by o.""受注日"" desc, o.""受注ID"" desc, d.""明細ID""
+            ";
+
+            var lookup = new Dictionary<int, OrderModel>();
+            await conn.QueryAsync<OrderModel, OrderDetailModel, OrderModel>(
+                sql,
+                (order, detail) =>
+                {
+                    if (!lookup.TryGetValue(order.受注ID, out var existing))
+                    {
+                        existing = order;
+                        existing.明細一覧 = new List<OrderDetailModel>();
+                        lookup.Add(existing.受注ID, existing);
+                    }
+
+                    if (detail != null && detail.明細ID != 0)
+                    {
+                        // Dapper の Split で別名列がマッピングされないため受注IDを合わせる
+                        detail.受注ID = existing.受注ID;
+                        existing.明細一覧.Add(detail);
+                    }
+
+                    return existing;
+                },
+                param: new
+                {
+                    startDate = safeStart,
+                    endDate = safeEnd,
+                    key = "%" + key + "%",
+                    isEmpty = string.IsNullOrWhiteSpace(key)
+                },
+                splitOn: "明細ID"
+            );
+
+            return lookup.Values
+                         .OrderByDescending(o => o.受注日)
+                         .ThenByDescending(o => o.受注ID)
+                         .ToList();
         }
 
         // 単一 Select
